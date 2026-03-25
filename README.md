@@ -65,7 +65,11 @@ func main() {
 
 	// use default scheduler, worker pool and engine
 	sched, _ := scheduler.NewDefaultScheduler(q, s, scheduler.WithLogger(logger))
-	workerPool, _ := pool.NewDefaultPool(handler, q, s, pool.WithLogger(logger))
+    
+	workerPool, _ := pool.NewDefaultPool(func() (worker.Worker, error) {
+		return worker.NewWorker(handler, q, s, worker.WithLogger(logger))
+	}, pool.WithLogger(logger))
+    
 	engine, _ := wagon.New(sched, workerPool)
 
 	ctx, cancel := context.WithCancel(context.Background())

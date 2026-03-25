@@ -9,9 +9,7 @@ import (
 	"runtime"
 	"sync"
 	"sync/atomic"
-	"time"
 
-	"github.com/google/uuid"
 	"github.com/salmonfishycooked/wagon/worker"
 )
 
@@ -37,20 +35,6 @@ const (
 	StateStopped
 )
 
-// NameFunc generates a display name for the i-th worker in a pool.
-type NameFunc func(index int) string
-
-func defaultNameFunc(index int) string {
-	return fmt.Sprintf("worker-%d", index)
-}
-
-// IDFunc generates an id for the i-th worker in a pool.
-type IDFunc func(index int) string
-
-func defaultIDFunc(index int) string {
-	return fmt.Sprintf("worker-%d-%s", index, uuid.NewString())
-}
-
 var _ Pool = (*DefaultPool)(nil)
 
 // DefaultPool holds a fixed set of workers that all share the same queue and store.
@@ -66,26 +50,23 @@ type DefaultPool struct {
 	// Used to actively cancel the context of goroutines managed by me during shutdown.
 	cancel context.CancelFunc
 
+	// newWorker defines how I create a new worker.
+	newWorker func() (worker.Worker, error)
+
 	// logger can be nil, which means you don't need my working log.
 	logger *slog.Logger
 }
 
 // config collects option values before the DefaultPool is built.
 type config struct {
-	size          int
-	nameFn        NameFunc
-	idFunc        IDFunc
-	retryInterval *time.Duration
-	logger        *slog.Logger
+	size   int
+	logger *slog.Logger
 }
 
 func defaultConfig() *config {
 	return &config{
-		size:          runtime.NumCPU(),
-		nameFn:        defaultNameFunc,
-		idFunc:        defaultIDFunc,
-		retryInterval: nil,
-		logger:        slog.New(slog.NewTextHandler(io.Discard, nil)),
+		size:   runtime.NumCPU(),
+		logger: slog.New(slog.NewTextHandler(io.Discard, nil)),
 	}
 }
 
@@ -107,39 +88,9 @@ func WithLogger(logger *slog.Logger) Option {
 	}
 }
 
-func WithNameFunc(fn NameFunc) Option {
-	return func(cfg *config) {
-		if fn != nil {
-			cfg.nameFn = fn
-		}
-	}
-}
-
-func WithIDFunc(fn IDFunc) Option {
-	return func(cfg *config) {
-		if fn != nil {
-			cfg.idFunc = fn
-		}
-	}
-}
-
-func WithRetryInterval(interval time.Duration) Option {
-	return func(cfg *config) {
-		if interval >= 0 {
-			cfg.retryInterval = &interval
-		}
-	}
-}
-
-func NewDefaultPool(handler worker.Handler, queue worker.Queue, store worker.Store, opts ...Option) (Pool, error) {
-	if handler == nil {
-		return nil, errors.New("worker pool: handler must not be nil")
-	}
-	if queue == nil {
-		return nil, errors.New("worker pool: queue must not be nil")
-	}
-	if store == nil {
-		return nil, errors.New("worker pool: store must not be nil")
+func NewDefaultPool(newWorker func() (worker.Worker, error), opts ...Option) (Pool, error) {
+	if newWorker == nil {
+		return nil, errors.New("worker pool: newWorker must not be nil")
 	}
 
 	cfg := defaultConfig()
@@ -148,28 +99,17 @@ func NewDefaultPool(handler worker.Handler, queue worker.Queue, store worker.Sto
 	}
 
 	p := &DefaultPool{
-		workers: make([]worker.Worker, cfg.size),
-		logger:  cfg.logger.With("component", "worker pool"),
+		workers:   make([]worker.Worker, cfg.size),
+		newWorker: newWorker,
+		logger:    cfg.logger.With("component", "worker pool"),
 	}
 
 	for i := range p.workers {
-		workerID := cfg.idFunc(i)
-		workerName := cfg.nameFn(i)
-
-		workerOpts := []worker.Option{
-			worker.WithID(workerID),
-			worker.WithName(workerName),
-			worker.WithLogger(cfg.logger),
-		}
-		if cfg.retryInterval != nil {
-			workerOpts = append(workerOpts, worker.WithRetryInterval(*cfg.retryInterval))
-		}
-
-		newWorker, err := worker.NewWorker(handler, queue, store, workerOpts...)
+		w, err := p.newWorker()
 		if err != nil {
-			return nil, err
+			return nil, fmt.Errorf("pool: create worker[%d] failed: %w", i, err)
 		}
-		p.workers[i] = newWorker
+		p.workers[i] = w
 	}
 	p.state.Store(StateInit)
 
