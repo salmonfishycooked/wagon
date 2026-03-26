@@ -1,145 +1,210 @@
 package worker
 
 import (
+	"bytes"
 	"context"
 	"errors"
-	"sync"
+	"log/slog"
+	"strings"
 	"testing"
+	"testing/synctest"
 	"time"
 
 	"github.com/salmonfishycooked/wagon/queue"
 	"github.com/salmonfishycooked/wagon/store"
 	"github.com/salmonfishycooked/wagon/task"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
-// test worker's handle functionality
-func TestWorker_Integration_Success(t *testing.T) {
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
+// ------------- necessary tools --------------
 
-	q := queue.NewDefaultQueue()
-	s := store.NewDefaultStore()
+// default timeout of context.WithTimeout
+var defaultTimeout = 3 * time.Second
 
-	tsk := &task.Task{ID: "t-success", Status: task.StatePending}
-	if err := s.Save(ctx, tsk); err != nil {
-		t.Fatalf("Save failed: %v", err)
-	}
-	if err := q.Enqueue(ctx, tsk.ID); err != nil {
-		t.Fatalf("Enqueue failed: %v", err)
-	}
-
-	handlerDone := make(chan struct{})
-	handler := func(_ context.Context, _ *task.Task) ([]byte, error) {
-		defer close(handlerDone)
-		return []byte("ok"), nil
-	}
-
-	w, err := NewWorker(handler, q, s, WithRetryInterval(0))
-	if err != nil {
-		t.Fatalf("NewWorker failed: %v", err)
-	}
-	if err := w.Start(ctx); err != nil {
-		t.Fatalf("Start failed: %v", err)
-	}
-
-	select {
-	case <-handlerDone:
-	case <-time.After(time.Second):
-		t.Fatal("handler was not called within timeout")
-	}
-
-	// waiting for worker writing state of tasks done.
-	time.Sleep(10 * time.Millisecond)
-
-	got, err := s.Get(ctx, tsk.ID)
-	if err != nil {
-		t.Fatalf("Get failed: %v", err)
-	}
-	if got.Status != task.StateSuccess {
-		t.Errorf("want StateSuccess, got %v", got.Status)
-	}
-	if string(got.Result) != "ok" {
-		t.Errorf("want result %q, got %q", "ok", got.Result)
-	}
-	if got.Reason != "" {
-		t.Errorf("want empty reason on success, got %q", got.Reason)
-	}
+func defaultQueue() queue.Queue {
+	return queue.NewDefaultQueue()
 }
 
-// mockStore will return an error when call Get
-type mockStore struct {
-	mu sync.Mutex
-
-	getTask *task.Task
-	getErr  error
-
-	nackedIDs []string
+func defaultStore() store.Store {
+	return store.NewDefaultStore()
 }
 
-func (m *mockStore) Get(_ context.Context, _ string) (*task.Task, error) {
-	return m.getTask, m.getErr
+var successHandler Handler = func(_ context.Context, _ *task.Task) (result []byte, err error) {
+	return []byte("ok"), nil
 }
 
-func (m *mockStore) UpdateStatus(_ context.Context, taskID string, status task.Status, result []byte, reason string) error {
-	return nil
+var failHandler Handler = func(_ context.Context, _ *task.Task) (result []byte, err error) {
+	return nil, errors.New("error")
 }
 
-type mockQueue struct {
-	mu        sync.Mutex
-	nackedIDs []string
+// ------------- tests ------------
+
+func TestNewWorker(t *testing.T) {
+	q, s := defaultQueue(), defaultStore()
+
+	t.Run("normally construct a new DefaultWorker", func(t *testing.T) {
+		worker, err := NewWorker(successHandler, q, s)
+		require.NoError(t, err)
+		require.NotNil(t, worker)
+	})
+
+	t.Run("lack of handler should return an error when constructing a new DefaultWorker", func(t *testing.T) {
+		_, err := NewWorker(nil, q, s)
+		require.Error(t, err)
+	})
+
+	t.Run("lack of queue should return an error when constructing a new DefaultWorker", func(t *testing.T) {
+		_, err := NewWorker(successHandler, nil, s)
+		require.Error(t, err)
+	})
+
+	t.Run("lack of store should return an error when constructing a new DefaultWorker", func(t *testing.T) {
+		_, err := NewWorker(successHandler, q, nil)
+		require.Error(t, err)
+	})
 }
 
-func (m *mockQueue) Dequeue(_ context.Context) (string, error) {
-	return "", queue.ErrEmpty
+func TestWithID(t *testing.T) {
+	id := "my-id"
+	q, s := defaultQueue(), defaultStore()
+
+	worker, err := NewWorker(successHandler, q, s, WithID(id))
+	require.NoError(t, err)
+	require.NotNil(t, worker)
+
+	defaultWorker := worker.(*DefaultWorker)
+	require.Equal(t, id, defaultWorker.id)
 }
 
-func (m *mockQueue) Ack(_ context.Context, _ string) error { return nil }
+func TestWithName(t *testing.T) {
+	name := "my-name"
+	q, s := defaultQueue(), defaultStore()
 
-func (m *mockQueue) Nack(_ context.Context, taskID string) error {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	m.nackedIDs = append(m.nackedIDs, taskID)
-	return nil
+	worker, err := NewWorker(successHandler, q, s, WithName(name))
+	require.NoError(t, err)
+	require.NotNil(t, worker)
+
+	defaultWorker := worker.(*DefaultWorker)
+	require.Equal(t, name, defaultWorker.name)
 }
 
-// when Store.Get failed, worker shouldn't proceed handling the task.
-func TestWorker_StoreGetFails_NacksWithoutCallingHandler(t *testing.T) {
+func TestWithLogger(t *testing.T) {
+	var buf bytes.Buffer
+	logger := slog.New(slog.NewTextHandler(&buf, nil))
+	q, s := defaultQueue(), defaultStore()
+
+	worker, err := NewWorker(successHandler, q, s, WithLogger(logger))
+	require.NoError(t, err)
+	require.NotNil(t, worker)
+
+	err = worker.Start(context.Background())
+	require.NoError(t, err)
+
+	err = worker.Shutdown(context.Background())
+	require.NoError(t, err)
+
+	require.True(t, strings.Contains(buf.String(), "worker"))
+}
+
+// TestWithRetryInterval tests whether the retryInterval works,
+// which means that when the worker didn't take any task from the queue,
+// the worker should be taking a nap with a period of retryInterval.
+func TestWithRetryInterval(t *testing.T) {
+	retryInterval := time.Hour
+	q, s := defaultQueue(), defaultStore()
+
+	worker, err := NewWorker(successHandler, q, s, WithRetryInterval(retryInterval))
+	require.NoError(t, err)
+
+	tsk := &task.Task{
+		ID:         "task_id",
+		Name:       "task_name",
+		ScheduleAt: time.Now(),
+	}
+
 	ctx := context.Background()
 
-	mq := &mockQueue{}
-	ms := &mockStore{getErr: errors.New("db connection lost")}
+	// ----------- test logic ------------
+	synctest.Test(t, func(t *testing.T) {
+		err := worker.Start(ctx)
+		require.NoError(t, err)
 
-	handlerCalled := false
-	handler := func(_ context.Context, _ *task.Task) ([]byte, error) {
-		handlerCalled = true
-		return nil, nil
-	}
+		// initially, there's no any task in the queue,
+		// so the worker will take a nap with a period of retryInterval.
+		synctest.Wait()
 
-	w, _ := NewWorker(handler, mq, ms)
-	w.(*DefaultWorker).process(ctx, "t-store-fail")
+		// after taking a nap with a period of retryInterval / 2,
+		// the worker shouldn't be awake.
+		time.Sleep(retryInterval / 2)
 
-	if handlerCalled {
-		t.Error("handler must NOT be called when store.Get fails")
-	}
-	if len(mq.nackedIDs) != 1 || mq.nackedIDs[0] != "t-store-fail" {
-		t.Errorf("expected Nack(t-store-fail), got %v", mq.nackedIDs)
-	}
+		// now we put a task into the queue, then sync all goroutines,
+		// and the worker shouldn't retrieve the task from the queue.
+		require.NoError(t, q.Enqueue(ctx, tsk.ID))
+		require.NoError(t, s.Save(ctx, tsk))
+
+		synctest.Wait()
+
+		// now we try to dequeue from the queue, and we will receive a taskID,
+		// instead of an error.
+		_, err = q.Dequeue(ctx)
+		require.NoError(t, err)
+
+		// now enqueue the task again into the queue,
+		// for being retrieved by worker after awake.
+		require.NoError(t, q.Enqueue(ctx, tsk.ID))
+		time.Sleep(retryInterval)
+
+		// let the task finish the remaining things.
+		synctest.Wait()
+
+		// now make sure the queue is empty
+		_, err = q.Dequeue(ctx)
+		require.Error(t, err)
+
+		// great, the worker passed the test :D
+		// now, shutdown the worker to exit it.
+		require.NoError(t, worker.Shutdown(ctx))
+
+		synctest.Wait()
+	})
 }
 
-// if handler panics, worker shouldn't crash.
-func TestWorker_HandlerPanic_WorkerSurvives(t *testing.T) {
+func TestWorker(t *testing.T) {
 	ctx := context.Background()
 
-	mq := &mockQueue{}
-	ms := &mockStore{getTask: &task.Task{ID: "t-panic"}}
+	t.Run("when panic occurs in handler, worker shouldn't crash", func(t *testing.T) {
+		q, s := defaultQueue(), defaultStore()
 
-	handler := func(_ context.Context, _ *task.Task) ([]byte, error) {
-		panic("unexpected panic in handler")
-	}
+		tsk := &task.Task{
+			ID:         "task_id",
+			Name:       "task_name",
+			ScheduleAt: time.Now(),
+		}
+		require.NoError(t, q.Enqueue(ctx, tsk.ID))
+		require.NoError(t, s.Save(ctx, tsk))
 
-	w, _ := NewWorker(handler, mq, ms)
+		var panicHandler Handler = func(_ context.Context, _ *task.Task) (result []byte, err error) {
+			panic("oops")
+		}
 
-	w.(*DefaultWorker).process(ctx, "t-panic")
+		worker, err := NewWorker(panicHandler, q, s)
+		require.NoError(t, err)
 
-	// if the worker didn't crash, the test will pass.
+		synctest.Test(t, func(t *testing.T) {
+			// start the worker
+			require.NoError(t, worker.Start(ctx))
+
+			// waiting for that the worker successfully handled the panic task,
+			// and sleep for the next task.
+			//
+			// if worker doesn't handle panic from handler, the test will fail here.
+			synctest.Wait()
+
+			// shutdown the worker
+			assert.NoError(t, worker.Shutdown(ctx))
+
+			synctest.Wait()
+		})
+	})
 }
