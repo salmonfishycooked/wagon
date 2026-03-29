@@ -1,17 +1,16 @@
-package queue_test
+package queue
 
 import (
 	"context"
 	"sync"
 	"testing"
 
-	"github.com/salmonfishycooked/wagon/queue"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
 
-func newQueue() queue.Queue {
-	return queue.NewDefaultQueue()
+func newQueue() Queue {
+	return NewDefaultQueue()
 }
 
 // ---------------------------------------------------------------------------
@@ -34,7 +33,7 @@ func TestDequeue_EmptyQueue(t *testing.T) {
 	ctx := context.Background()
 
 	_, err := q.Dequeue(ctx)
-	require.ErrorIs(t, err, queue.ErrEmpty)
+	require.ErrorIs(t, err, ErrEmpty)
 }
 
 func TestEnqueueDequeue_FIFO(t *testing.T) {
@@ -61,7 +60,7 @@ func TestDequeue_EmptyAfterDraining(t *testing.T) {
 	_, _ = q.Dequeue(ctx)
 
 	_, err := q.Dequeue(ctx)
-	require.ErrorIs(t, err, queue.ErrEmpty)
+	require.ErrorIs(t, err, ErrEmpty)
 }
 
 // ---------------------------------------------------------------------------
@@ -84,7 +83,7 @@ func TestAck_NonExistentTask(t *testing.T) {
 	ctx := context.Background()
 
 	err := q.Ack(ctx, "ghost-task")
-	require.ErrorIs(t, err, queue.ErrNoSuchTask)
+	require.ErrorIs(t, err, ErrNoSuchTask)
 }
 
 func TestAck_CannotAckTwice(t *testing.T) {
@@ -95,7 +94,7 @@ func TestAck_CannotAckTwice(t *testing.T) {
 	_, _ = q.Dequeue(ctx)
 	require.NoError(t, q.Ack(ctx, "t1"))
 
-	assert.ErrorIs(t, q.Ack(ctx, "t1"), queue.ErrNoSuchTask)
+	assert.ErrorIs(t, q.Ack(ctx, "t1"), ErrNoSuchTask)
 }
 
 func TestAck_ItemNotReenqueued(t *testing.T) {
@@ -107,7 +106,7 @@ func TestAck_ItemNotReenqueued(t *testing.T) {
 	_ = q.Ack(ctx, "t1")
 
 	_, err := q.Dequeue(ctx)
-	require.ErrorIs(t, err, queue.ErrEmpty, "acked task must not be re-dequeued")
+	require.ErrorIs(t, err, ErrEmpty, "acked task must not be re-dequeued")
 }
 
 // ---------------------------------------------------------------------------
@@ -133,7 +132,7 @@ func TestNack_NonExistentTask(t *testing.T) {
 	ctx := context.Background()
 
 	err := q.Nack(ctx, "ghost-task")
-	require.ErrorIs(t, err, queue.ErrNoSuchTask)
+	require.ErrorIs(t, err, ErrNoSuchTask)
 }
 
 func TestNack_CannotNackTaskNotInPending(t *testing.T) {
@@ -150,7 +149,7 @@ func TestNack_CannotNackTaskNotInPending(t *testing.T) {
 
 	// t1 is in items, NOT in pending — Nack must fail.
 	err := q.Nack(ctx, "t1")
-	require.ErrorIs(t, err, queue.ErrNoSuchTask)
+	require.ErrorIs(t, err, ErrNoSuchTask)
 }
 
 // ---------------------------------------------------------------------------
@@ -211,4 +210,17 @@ func TestConcurrent_AckNack(t *testing.T) {
 	}
 	wg.Wait()
 	// No assertions needed — the test passes if there are no data races.
+}
+
+// ---------------------------------------
+// Test DefaultConnector
+// ---------------------------------------
+
+func TestDefaultConnector_Connect(t *testing.T) {
+	connector := NewDefaultConnector()
+	require.NotNil(t, connector, "Connector should not be nil")
+
+	q, err := connector.Connect(context.Background())
+	require.NoError(t, err)
+	require.NotNil(t, q, "Queue should not be nil")
 }

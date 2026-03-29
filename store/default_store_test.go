@@ -1,4 +1,4 @@
-package store_test
+package store
 
 import (
 	"context"
@@ -6,14 +6,13 @@ import (
 	"testing"
 	"time"
 
-	"github.com/salmonfishycooked/wagon/store"
 	"github.com/salmonfishycooked/wagon/task"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
 
-func newStore() store.Store {
-	return store.NewDefaultStore()
+func newStore() Store {
+	return NewDefaultStore()
 }
 
 func sampleTask(id string) *task.Task {
@@ -45,7 +44,7 @@ func TestSave_DuplicateID(t *testing.T) {
 	require.NoError(t, s.Save(ctx, tsk))
 
 	err := s.Save(ctx, tsk)
-	require.ErrorIs(t, err, store.ErrTaskAlreadyExist)
+	require.ErrorIs(t, err, ErrTaskAlreadyExist)
 }
 
 func TestSave_IsolatesCopy(t *testing.T) {
@@ -83,7 +82,7 @@ func TestGet_NonExistent(t *testing.T) {
 	ctx := context.Background()
 
 	_, err := s.Get(ctx, "does-not-exist")
-	require.ErrorIs(t, err, store.ErrNoSuchTask)
+	require.ErrorIs(t, err, ErrNoSuchTask)
 }
 
 func TestGet_ReturnsCopy(t *testing.T) {
@@ -152,7 +151,7 @@ func TestUpdateStatus_NonExistentTask(t *testing.T) {
 	ctx := context.Background()
 
 	err := s.UpdateStatus(ctx, "ghost", task.StateSuccess, nil, "")
-	require.ErrorIs(t, err, store.ErrNoSuchTask)
+	require.ErrorIs(t, err, ErrNoSuchTask)
 }
 
 func TestUpdateStatus_AllStatusTransitions(t *testing.T) {
@@ -201,4 +200,17 @@ func TestConcurrent_SaveAndGet(t *testing.T) {
 	}
 	wg.Wait()
 	// Test passes if there are no data races.
+}
+
+// ---------------------------------------
+// Test DefaultConnector
+// ---------------------------------------
+
+func TestDefaultConnector_Connect(t *testing.T) {
+	connector := NewDefaultConnector()
+	require.NotNil(t, connector, "Connector should not be nil")
+
+	s, err := connector.Connect(context.Background())
+	require.NoError(t, err)
+	require.NotNil(t, s, "Store should not be nil")
 }

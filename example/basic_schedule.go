@@ -21,13 +21,16 @@ var handler = func(ctx context.Context, tsk *task.Task) (result []byte, err erro
 }
 
 func main() {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
 	logger := slog.New(slog.NewTextHandler(os.Stdout, &slog.HandlerOptions{
 		Level: slog.LevelInfo,
 	}))
 
 	// use default queue and store
-	q := queue.NewDefaultQueue()
-	s := store.NewDefaultStore()
+	q, _ := queue.NewDefaultConnector().Connect(ctx)
+	s, _ := store.NewDefaultConnector().Connect(ctx)
 
 	// use default scheduler, worker pool and engine
 	sched, _ := scheduler.NewDefaultScheduler(q, s, scheduler.WithLogger(logger))
@@ -37,9 +40,6 @@ func main() {
 	}, pool.WithLogger(logger))
 
 	engine, _ := wagon.New(sched, workerPool)
-
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
 
 	// start scheduling engine
 	_ = engine.Start(ctx)

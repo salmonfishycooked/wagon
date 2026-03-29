@@ -2,9 +2,6 @@ package queue
 
 import (
 	"context"
-	"errors"
-	"fmt"
-	"sync"
 )
 
 // Queue is the task queue that only stores taskID of task.
@@ -37,75 +34,7 @@ type Queue interface {
 	Nack(ctx context.Context, taskID string) error
 }
 
-var (
-	ErrEmpty      = errors.New("queue is empty")
-	ErrNoSuchTask = errors.New("no such task")
-)
-
-var _ Queue = (*defaultQueue)(nil)
-
-// defaultQueue is an in-memory queue.
-// It's safe for concurrent use by multiple goroutines.
-type defaultQueue struct {
-	items   []string
-	pending []string
-
-	mu sync.Mutex
-}
-
-func NewDefaultQueue() Queue {
-	return &defaultQueue{}
-}
-
-func (q *defaultQueue) Enqueue(_ context.Context, taskID string) error {
-	q.mu.Lock()
-	defer q.mu.Unlock()
-
-	q.items = append(q.items, taskID)
-	return nil
-}
-
-func (q *defaultQueue) Dequeue(_ context.Context) (string, error) {
-	q.mu.Lock()
-	defer q.mu.Unlock()
-
-	if len(q.items) == 0 {
-		return "", ErrEmpty
-	}
-
-	taskID := q.items[0]
-	q.items = q.items[1:]
-
-	q.pending = append(q.pending, taskID)
-
-	return taskID, nil
-}
-
-func (q *defaultQueue) Ack(_ context.Context, taskID string) error {
-	q.mu.Lock()
-	defer q.mu.Unlock()
-
-	for i, id := range q.pending {
-		if id == taskID {
-			q.pending = append(q.pending[:i], q.pending[i+1:]...)
-			return nil
-		}
-	}
-
-	return fmt.Errorf("%w: taskID %s doesn't exist", ErrNoSuchTask, taskID)
-}
-
-func (q *defaultQueue) Nack(_ context.Context, taskID string) error {
-	q.mu.Lock()
-	defer q.mu.Unlock()
-
-	for i, id := range q.pending {
-		if id == taskID {
-			q.pending = append(q.pending[:i], q.pending[i+1:]...)
-			q.items = append(q.items, taskID)
-			return nil
-		}
-	}
-
-	return fmt.Errorf("%w: taskID %s doesn't exist", ErrNoSuchTask, taskID)
+// Connector connects to the specific Queue.
+type Connector interface {
+	Connect(ctx context.Context) (Queue, error)
 }
