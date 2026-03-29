@@ -129,7 +129,7 @@ Wagon is open-source software licensed under the [MIT License](./LICENSE).
 
 
 
-<p align="center">
-  <i>In memory of the trading roads between Pasloe and the great markets of the north.</i><br/>
-  <i>May your tasks always reach their destination. 🐺🌾</i>
+<p style="text-align: center;">
+  <em>In memory of the trading roads between Pasloe and the great markets of the north.</em><br>
+  <em>May your tasks always reach their destination. 🐺🌾</em>
 </p>
