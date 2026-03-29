@@ -12,7 +12,7 @@ import (
 )
 
 func newStore() Store {
-	return NewDefaultStore()
+	return NewMemoryStore()
 }
 
 func sampleTask(id string) *task.Task {
@@ -200,17 +200,4 @@ func TestConcurrent_SaveAndGet(t *testing.T) {
 	}
 	wg.Wait()
 	// Test passes if there are no data races.
-}
-
-// ---------------------------------------
-// Test DefaultConnector
-// ---------------------------------------
-
-func TestDefaultConnector_Connect(t *testing.T) {
-	connector := NewDefaultConnector()
-	require.NotNil(t, connector, "Connector should not be nil")
-
-	s, err := connector.Connect(context.Background())
-	require.NoError(t, err)
-	require.NotNil(t, s, "Store should not be nil")
 }

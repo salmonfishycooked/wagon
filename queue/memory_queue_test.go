@@ -10,7 +10,7 @@ import (
 )
 
 func newQueue() Queue {
-	return NewDefaultQueue()
+	return NewMemoryQueue()
 }
 
 // ---------------------------------------------------------------------------
@@ -210,17 +210,4 @@ func TestConcurrent_AckNack(t *testing.T) {
 	}
 	wg.Wait()
 	// No assertions needed — the test passes if there are no data races.
-}
-
-// ---------------------------------------
-// Test DefaultConnector
-// ---------------------------------------
-
-func TestDefaultConnector_Connect(t *testing.T) {
-	connector := NewDefaultConnector()
-	require.NotNil(t, connector, "Connector should not be nil")
-
-	q, err := connector.Connect(context.Background())
-	require.NoError(t, err)
-	require.NotNil(t, q, "Queue should not be nil")
 }

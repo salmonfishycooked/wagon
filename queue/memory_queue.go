@@ -12,22 +12,22 @@ var (
 	ErrNoSuchTask = errors.New("no such task")
 )
 
-var _ Queue = (*DefaultQueue)(nil)
+var _ Queue = (*MemoryQueue)(nil)
 
-// DefaultQueue is an in-memory queue.
+// MemoryQueue is an in-memory queue.
 // It's safe for concurrent use by multiple goroutines.
-type DefaultQueue struct {
+type MemoryQueue struct {
 	items   []string
 	pending []string
 
 	mu sync.Mutex
 }
 
-func NewDefaultQueue() Queue {
-	return &DefaultQueue{}
+func NewMemoryQueue() Queue {
+	return &MemoryQueue{}
 }
 
-func (q *DefaultQueue) Enqueue(_ context.Context, taskID string) error {
+func (q *MemoryQueue) Enqueue(_ context.Context, taskID string) error {
 	q.mu.Lock()
 	defer q.mu.Unlock()
 
@@ -35,7 +35,7 @@ func (q *DefaultQueue) Enqueue(_ context.Context, taskID string) error {
 	return nil
 }
 
-func (q *DefaultQueue) Dequeue(_ context.Context) (string, error) {
+func (q *MemoryQueue) Dequeue(_ context.Context) (string, error) {
 	q.mu.Lock()
 	defer q.mu.Unlock()
 
@@ -51,7 +51,7 @@ func (q *DefaultQueue) Dequeue(_ context.Context) (string, error) {
 	return taskID, nil
 }
 
-func (q *DefaultQueue) Ack(_ context.Context, taskID string) error {
+func (q *MemoryQueue) Ack(_ context.Context, taskID string) error {
 	q.mu.Lock()
 	defer q.mu.Unlock()
 
@@ -65,7 +65,7 @@ func (q *DefaultQueue) Ack(_ context.Context, taskID string) error {
 	return fmt.Errorf("%w: taskID %s doesn't exist", ErrNoSuchTask, taskID)
 }
 
-func (q *DefaultQueue) Nack(_ context.Context, taskID string) error {
+func (q *MemoryQueue) Nack(_ context.Context, taskID string) error {
 	q.mu.Lock()
 	defer q.mu.Unlock()
 
@@ -78,15 +78,4 @@ func (q *DefaultQueue) Nack(_ context.Context, taskID string) error {
 	}
 
 	return fmt.Errorf("%w: taskID %s doesn't exist", ErrNoSuchTask, taskID)
-}
-
-// DefaultConnector is the connector that belongs to DefaultQueue.
-type DefaultConnector struct{}
-
-func NewDefaultConnector() Connector {
-	return &DefaultConnector{}
-}
-
-func (c *DefaultConnector) Connect(_ context.Context) (Queue, error) {
-	return NewDefaultQueue(), nil
 }

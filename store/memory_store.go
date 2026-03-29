@@ -14,19 +14,19 @@ var (
 	ErrTaskAlreadyExist = errors.New("the task already exists")
 )
 
-// DefaultStore is an in-memory storage.
+// MemoryStore is an in-memory storage.
 // It's safe for concurrent use by multiple goroutines.
-type DefaultStore struct {
+type MemoryStore struct {
 	items map[string]*task.Task
 
 	mu sync.Mutex
 }
 
-func NewDefaultStore() Store {
-	return &DefaultStore{items: make(map[string]*task.Task)}
+func NewMemoryStore() Store {
+	return &MemoryStore{items: make(map[string]*task.Task)}
 }
 
-func (s *DefaultStore) Get(_ context.Context, taskID string) (*task.Task, error) {
+func (s *MemoryStore) Get(_ context.Context, taskID string) (*task.Task, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
@@ -40,7 +40,7 @@ func (s *DefaultStore) Get(_ context.Context, taskID string) (*task.Task, error)
 	return &t, nil
 }
 
-func (s *DefaultStore) Save(_ context.Context, tsk *task.Task) error {
+func (s *MemoryStore) Save(_ context.Context, tsk *task.Task) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
@@ -55,7 +55,7 @@ func (s *DefaultStore) Save(_ context.Context, tsk *task.Task) error {
 	return nil
 }
 
-func (s *DefaultStore) UpdateStatus(_ context.Context, taskID string, status task.Status, result []byte, reason string) error {
+func (s *MemoryStore) UpdateStatus(_ context.Context, taskID string, status task.Status, result []byte, reason string) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
@@ -69,15 +69,4 @@ func (s *DefaultStore) UpdateStatus(_ context.Context, taskID string, status tas
 	v.Reason = reason
 
 	return nil
-}
-
-// DefaultConnector is the connector that belongs to DefaultStore.
-type DefaultConnector struct{}
-
-func NewDefaultConnector() Connector {
-	return &DefaultConnector{}
-}
-
-func (c *DefaultConnector) Connect(_ context.Context) (Store, error) {
-	return NewDefaultStore(), nil
 }

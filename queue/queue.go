@@ -33,8 +33,3 @@ type Queue interface {
 	// and Queue will enqueue the task again.
 	Nack(ctx context.Context, taskID string) error
 }
-
-// Connector connects to the specific Queue.
-type Connector interface {
-	Connect(ctx context.Context) (Queue, error)
-}

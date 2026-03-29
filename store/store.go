@@ -33,8 +33,3 @@ type Store interface {
 	// like, if result is nil, then the result of task with taskID in database will be empty too.
 	UpdateStatus(ctx context.Context, taskID string, status task.Status, result []byte, reason string) error
 }
-
-// Connector connects to the specific Store.
-type Connector interface {
-	Connect(ctx context.Context) (Store, error)
-}

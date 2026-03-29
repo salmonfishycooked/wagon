@@ -23,11 +23,11 @@ import (
 var defaultTimeout = 3 * time.Second
 
 func defaultQueue() queue.Queue {
-	return queue.NewDefaultQueue()
+	return queue.NewMemoryQueue()
 }
 
 func defaultStore() store.Store {
-	return store.NewDefaultStore()
+	return store.NewMemoryStore()
 }
 
 var successHandler Handler = func(_ context.Context, _ *task.Task) (result []byte, err error) {
