@@ -64,8 +64,8 @@ func main() {
 	}))
 
 	// use default queue and store
-	q, _ := queue.NewDefaultConnector().Connect(ctx)
-	s, _ := store.NewDefaultConnector().Connect(ctx)
+	q := queue.NewMemoryQueue()
+	s := store.NewMemoryStore()
 
 	// use default scheduler, worker pool and engine
 	sched, _ := scheduler.NewDefaultScheduler(q, s, scheduler.WithLogger(logger))
